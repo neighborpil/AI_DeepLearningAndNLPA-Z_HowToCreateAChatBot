@@ -3,9 +3,11 @@ import tensorflow as tf
 import re
 import time
 
+# Importing the dataset
 lines = open('dataset/movie_lines.txt', encoding='utf-8', errors='ignore').read().split('\n')
 conversations = open('dataset/movie_conversations.txt', encoding='utf-8', errors='ignore').read().split('\n')
 
+# Creating a dictionary that maps each line and its id
 id2line = {}
 for line in lines:
     _line = line.split(' +++$+++ ')
@@ -87,3 +89,49 @@ for word, count in word2count.items():
     if count >= threshold:
         answersword2int[word] = word_number
         word_number += 1
+
+# Adding the last tokens to these two dictionaries
+tokens = ['<PAD>', '<EOS>', '<OUT>', '<SOS>']  # PAD: padding, EOS: end of string, OUT: out of vocabulary, SOS: start of string
+for token in tokens:
+    questionsword2int[token] = len(questionsword2int) + 1
+for token in tokens:
+    answersword2int[token] = len(answersword2int) + 1
+
+# Creating the inverse dictionary of the answersword2int dictionary
+answersints2word = {w_i: w for w, w_i in answersword2int.items()}
+
+# Adding the End Of String token to the end of every answer
+for i in range(len(clean_answers)):
+    clean_answers[i] += ' <EOS>'
+
+# Translating all the questions and the answers into integers
+# and Replacing all the words that were filtered out by <OUT>
+questions_into_int = []
+for question in clean_questions:
+    ints = []
+    for word in question.split():
+        if word not in questionsword2int:
+            ints.append(questionsword2int['<OUT>'])
+        else:
+            ints.append(questionsword2int[word])
+    questions_into_int.append(ints)
+
+answers_into_int = []
+for answer in clean_answers:
+    ints = []
+    for word in answer.split():
+        if word not in answersword2int:
+            ints.append(answersword2int['<OUT>'])
+        else:
+            ints.append(answersword2int[word])
+    answers_into_int.append(ints)
+
+# Sorting questions and answers by the length of questions
+sorted_clean_questions = []
+sorted_clean_answers = []
+for length in range(1, 25 + 1):  # 25 is the maximum length of questions
+    for i in enumerate(questions_into_int):
+        if len(i[1]) == length:  # i[1] is the question
+            sorted_clean_questions.append(questions_into_int[i[0]])  # i[0] is the index of the question
+            sorted_clean_answers.append(answers_into_int[i[0]])  # i[0] is the index of the question
+
