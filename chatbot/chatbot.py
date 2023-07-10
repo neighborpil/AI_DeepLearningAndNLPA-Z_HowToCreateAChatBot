@@ -135,3 +135,4 @@ for length in range(1, 25 + 1):  # 25 is the maximum length of questions
             sorted_clean_questions.append(questions_into_int[i[0]])  # i[0] is the index of the question
             sorted_clean_answers.append(answers_into_int[i[0]])  # i[0] is the index of the question
 
+# Creating placeholders for the inputs and the targets
