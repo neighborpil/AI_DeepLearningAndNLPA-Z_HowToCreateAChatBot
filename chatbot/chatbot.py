@@ -135,4 +135,28 @@ for length in range(1, 25 + 1):  # 25 is the maximum length of questions
             sorted_clean_questions.append(questions_into_int[i[0]])  # i[0] is the index of the question
             sorted_clean_answers.append(answers_into_int[i[0]])  # i[0] is the index of the question
 
+
 # Creating placeholders for the inputs and the targets
+def model_inputs():
+    inputs = tf.placeholder(tf.int32, [None, None], name='input')  # None: batch size, None: sequence length
+    targets = tf.placeholder(tf.int32, [None, None], name='target')  # None: batch size, None: sequence length
+    lr = tf.placeholder(tf.float32, name='learning_rate')  # learning rate
+    keep_prob = tf.placeholder(tf.float32, name='keep_prob')  # dropout rate
+    return inputs, targets, lr, keep_prob
+
+
+# Preprocessing the targets
+def preprocess_targets(targets, word2int, batch_size):
+    left_side = tf.fill([batch_size, 1], word2int['<SOS>'])  # fill a tensor with a specific value
+    # strided_slice: extract a subset of a tensor
+    # first argument: tensor, second argument: begin, third argument: end, fourth argument: stride
+    right_side = tf.strided_slice(targets, [0, 0], [batch_size, -1], [1, 1])
+    # concatenate two tensors
+    # horizontal concatenation: axis = 1, vertical concatenation: axis = 0
+    # horizontal example: [[1, 2, 3], [4, 5, 6]] + [[7], [8]] = [[1, 2, 3, 7], [4, 5, 6, 8]]
+    # vertical example: [[1, 2, 3], [4, 5, 6]] + [[7, 8, 9]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    preprocessed_targets = tf.concat([left_side, right_side], 1)  # horizontal concatenation
+    return preprocessed_targets
+
+
+# Creating the Encoder RNN Layer
