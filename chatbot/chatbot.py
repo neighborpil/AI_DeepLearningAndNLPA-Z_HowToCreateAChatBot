@@ -160,3 +160,162 @@ def preprocess_targets(targets, word2int, batch_size):
 
 
 # Creating the Encoder RNN Layer
+# rnn_inputs: inputs of the RNN layer
+# rnn_size: number of input tensors
+# num_layers: number of layers
+# keep_prob: dropout rate
+# sequence_length: list of the length of each question in the batch
+def encoder_rnn(rnn_inputs, rnn_size, num_layers, keep_prob, sequence_length):
+    lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
+    lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
+    encoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
+    # cell_fw: forward cell, cell_bw: backward cell
+    # sequence_length: list of the length of each question in the batch
+    # inputs: inputs of the RNN layer
+    # dtype: type of the rnn inputs
+    # _encoder_output: output of the encoder, don't need it
+    # encoder_state: final state of the encoder
+    _encoder_output, encoder_state = tf.nn.bidirectional_dynamic_rnn(
+        cell_fw=encoder_cell,
+        cell_bw=encoder_cell,
+        sequence_length=sequence_length,
+        inputs=rnn_inputs,
+        dtype=tf.float32)  # create a bidirectional RNN
+
+    return encoder_state
+
+
+# Decoding the training set
+# encoder_state: final state of the encoder
+# decoder_cell: decoder RNN cell
+# decoder_embedded_input: embedded input of the decoder
+# sequence_length: list of the length of each question in the batch
+# decoding_scope: scope of the decoding layer
+# output_function: function to return the output of the decoding layer
+# keep_prob: dropout rate
+def decode_training_set(encoder_state, decoder_cell, decoder_embedded_input, sequence_length, decoding_scope, output_function, keep_prob, batch_size):
+    attention_states = tf.zeros([batch_size, 1, decoder_cell.output_size])  # initialize the attention states
+    # attention_keys: keys to be compared with the target state
+    # attention_values: values used to construct the context vector
+    # attention_score_function: used to compute the similarity between the keys and the target state
+    # attention_construct_function: used to build the attention state
+    attention_keys, attention_values, attention_score_function, attention_construct_function = tf.contrib.seq2seq.prepare_attention(
+        attention_states=attention_states,
+        attention_option='bahdanau',
+        num_units=decoder_cell.output_size)  # create the attention mechanism
+
+    training_decoder_function = tf.contrib.seq2seq.attention_decoder_fn_train(
+        encoder_state[0],  # encoder_state[0]: forward state of the encoder
+        attention_keys,  # keys to be compared with the target state
+        attention_values,  # values used to construct the context vector
+        attention_score_function,  # used to compute the similarity between the keys and the target state
+        attention_construct_function,  # used to build the attention state
+        name='attn_dec_train')  # name of the attention decoder function
+
+    # decoder_output: output of the decoder
+    # _decoder_final_state: final state of the decoder, don't need it
+    # _decoder_final_context_state: final state of the decoder context, don't need it
+    decoder_output, _decoder_final_state, _decoder_final_context_state = tf.contrib.seq2seq.dynamic_rnn_decoder(
+        decoder_cell,  # decoder RNN cell
+        training_decoder_function,  # attention decoder function
+        decoder_embedded_input,  # embedded input of the decoder
+        sequence_length, # list of the length of each question in the batch
+        scope=decoding_scope)  # scope of the decoding layer
+
+    decoder_output_dropout = tf.nn.dropout(decoder_output, keep_prob)  # add dropout to the decoder output
+    return output_function(decoder_output_dropout)  # return the output of the decoding layer
+
+
+def decode_test_set(encoder_state, decoder_cell, decoder_embeddings_matrix, sos_id, eos_id, maximum_length, num_words, decoding_scope, output_function, keep_prob, batch_size):
+    attention_states = tf.zeros([batch_size, 1, decoder_cell.output_size])  # initialize the attention states
+    attention_keys, attention_values, attention_score_function, attention_construct_function = tf.contrib.seq2seq.prepare_attention(
+        attention_states=attention_states,
+        attention_option='bahdanau',
+        num_units=decoder_cell.output_size)  # create the attention mechanism
+
+    test_decoder_function = tf.contrib.seq2seq.attention_decoder_fn_inference(
+        output_function,  # output function to use
+        encoder_state[0],  # encoder_state[0]: forward state of the encoder
+        attention_keys,  # keys to be compared with the target state
+        attention_values,  # values used to construct the context vector
+        attention_score_function,  # used to compute the similarity between the keys and the target state
+        attention_construct_function,  # used to build the attention state
+        decoder_embeddings_matrix,  # embeddings matrix of the decoder
+        sos_id,  # start of sentence id
+        eos_id,  # end of sentence id
+        maximum_length,  # maximum length of the sentence
+        num_words,  # number of words in the vocabulary
+        name='attn_dec_inf')  # name of the attention decoder function
+
+    test_predictions, _decoder_final_state, _decoder_final_context_state = tf.contrib.seq2seq.dynamic_rnn_decoder(
+        decoder_cell,  # decoder RNN cell
+        test_decoder_function,  # attention decoder function
+        scope=decoding_scope)  # scope of the decoding layer
+
+    return test_predictions
+
+# Creating the Decoder RNN
+def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state, num_words, sequence_length, rnn_size, num_layers, word2int, keep_prob, batch_size):
+    with tf.variable_scope('decoding') as decoding_scope:
+        lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
+        lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
+        decoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
+        weights = tf.truncated_normal_initializer(stddev=0.1)  # initialize the weights, stddev: standard deviation
+        biases = tf.zeros_initializer()
+        output_function = lambda x: tf.contrib.layers.fully_connected(
+            x,  # input tensor
+            num_words,  # number of outputs
+            None,  # activation function
+            scope=decoding_scope,  # scope of the decoding layer
+            weights_initializer=weights,  # weights initializer
+            biases_initializer=biases)  # biases initializer
+
+        training_predictions =decode_training_set(
+            encoder_state,  # final state of the encoder
+            decoder_cell,  # decoder RNN cell
+            decoder_embedded_input,  # embedded input of the decoder
+            sequence_length,  # list of the length of each question in the batch
+            decoding_scope,  # scope of the decoding layer
+            output_function,  # function to return the output of the decoding layer
+            keep_prob,  # dropout rate
+            batch_size)  # batch size
+
+        decoding_scope.reuse_variables()  # reuse the variables
+        test_predictions = decode_test_set(
+            encoder_state,  # final state of the encoder
+            decoder_cell,  # decoder RNN cell
+            decoder_embeddings_matrix,  # embeddings matrix of the decoder
+        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
