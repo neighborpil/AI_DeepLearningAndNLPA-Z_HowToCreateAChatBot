@@ -3,6 +3,10 @@ import tensorflow as tf
 import re
 import time
 
+
+########## PART 1 - DATA PREPROCESSING ##########
+
+
 # Importing the dataset
 lines = open('dataset/movie_lines.txt', encoding='utf-8', errors='ignore').read().split('\n')
 conversations = open('dataset/movie_conversations.txt', encoding='utf-8', errors='ignore').read().split('\n')
@@ -14,9 +18,9 @@ for line in lines:
     if len(_line) == 5:
         id2line[_line[0]] = _line[4]
 
-# Create a list of all the conversations
+# Creating a list of all of the conversations
 conversations_ids = []
-for  conversation in conversations[:-1]:
+for conversation in conversations[:-1]:
     _conversation = conversation.split(' +++$+++ ')[-1][1:-1].replace("'", "").replace(" ", "")
     conversations_ids.append(_conversation.split(','))
 
@@ -24,7 +28,7 @@ for  conversation in conversations[:-1]:
 questions = []
 answers = []
 for conversation in conversations_ids:
-    for i in range(len(conversation) -1):
+    for i in range(len(conversation) - 1):
         questions.append(id2line[conversation[i]])
         answers.append(id2line[conversation[i+1]])
 
@@ -32,19 +36,19 @@ for conversation in conversations_ids:
 # Doing a first cleaning of the texts
 def clean_text(text):
     text = text.lower()
-    text = re.sub(r"i'm", "i am", text) # replace i'm with i am
-    text = re.sub(r"he's", "he is", text) # replace he's with he is
-    text = re.sub(r"she's", "she is", text) # replace she's with she is
-    text = re.sub(r"that's", "that is", text) # replace that's with that is
-    text = re.sub(r"what's", "what is", text) # replace what's with what is
-    text = re.sub(r"where's", "where is", text) # replace where's with where is
-    text = re.sub(r"\'ll", "will", text) # replace 'll with will
-    text = re.sub(r"\'ve", "have", text) # replace 've with have
-    text = re.sub(r"\'re", "are", text) # replace 're with are
-    text = re.sub(r"\'d", "would", text) # replace 'd with would
-    text = re.sub(r"won't", "will not", text) # replace won't with will not
-    text = re.sub(r"can't", "cannot", text) # replace can't with cannot
-    text = re.sub(r"[-()\"/@;:<>{}+=~|.?!,]", "", text) # remove all special characters
+    text = re.sub(r"i'm", "i am", text)  # replace i'm with i am
+    text = re.sub(r"he's", "he is", text)  # replace he's with he is
+    text = re.sub(r"she's", "she is", text)  # replace she's with she is
+    text = re.sub(r"that's", "that is", text)  # replace that's with that is
+    text = re.sub(r"what's", "what is", text)  # replace what's with what is
+    text = re.sub(r"where's", "where is", text)  # replace where's with where is
+    text = re.sub(r"\'ll", "will", text)  # replace 'll with will
+    text = re.sub(r"\'ve", "have", text)  # replace 've with have
+    text = re.sub(r"\'re", "are", text)  # replace 're with are
+    text = re.sub(r"\'d", "would", text)  # replace 'd with would
+    text = re.sub(r"won't", "will not", text)  # replace won't with will not
+    text = re.sub(r"can't", "cannot", text)  # replace can't with cannot
+    text = re.sub(r"[-()\"/@;:<>{}+=~|.?!,]", "", text)  # remove all special characters
     return text
 
 
@@ -58,7 +62,7 @@ clean_answers = []
 for answer in answers:
     clean_answers.append(clean_text(answer))
 
-# Creating a dictionary that maps each word to its number of occurences
+# Creating a dictionary that maps each word to its number of occurrences
 word2count = {}
 for question in clean_questions:
     for word in question.split():
@@ -75,30 +79,30 @@ for answer in clean_answers:
             word2count[word] += 1
 
 # Creating two dictionaries that map the questions words and the answers words to a unique integer
-threshold = 20
-questionsword2int = {}
+threshold_questions = 20
+questionswords2int = {}
 word_number = 0
 for word, count in word2count.items():
-    if count >= threshold:
-        questionsword2int[word] = word_number
+    if count >= threshold_questions:
+        questionswords2int[word] = word_number
         word_number += 1
 
-answersword2int = {}
+answerswords2int = {}
 word_number = 0
 for word, count in word2count.items():
-    if count >= threshold:
-        answersword2int[word] = word_number
+    if count >= threshold_answers:
+        answerswords2int[word] = word_number
         word_number += 1
 
 # Adding the last tokens to these two dictionaries
 tokens = ['<PAD>', '<EOS>', '<OUT>', '<SOS>']  # PAD: padding, EOS: end of string, OUT: out of vocabulary, SOS: start of string
 for token in tokens:
-    questionsword2int[token] = len(questionsword2int) + 1
+    questionswords2int[token] = len(questionswords2int) + 1
 for token in tokens:
-    answersword2int[token] = len(answersword2int) + 1
+    answerswords2int[token] = len(answerswords2int) + 1
 
-# Creating the inverse dictionary of the answersword2int dictionary
-answersints2word = {w_i: w for w, w_i in answersword2int.items()}
+# Creating the inverse dictionary of the answerswords2int dictionary
+answersints2word = {w_i: w for w, w_i in answerswords2int.items()}
 
 # Adding the End Of String token to the end of every answer
 for i in range(len(clean_answers)):
@@ -110,20 +114,20 @@ questions_into_int = []
 for question in clean_questions:
     ints = []
     for word in question.split():
-        if word not in questionsword2int:
-            ints.append(questionsword2int['<OUT>'])
+        if word not in questionswords2int:
+            ints.append(questionswords2int['<OUT>'])
         else:
-            ints.append(questionsword2int[word])
+            ints.append(questionswords2int[word])
     questions_into_int.append(ints)
 
 answers_into_int = []
 for answer in clean_answers:
     ints = []
     for word in answer.split():
-        if word not in answersword2int:
-            ints.append(answersword2int['<OUT>'])
+        if word not in answerswords2int:
+            ints.append(answerswords2int['<OUT>'])
         else:
-            ints.append(answersword2int[word])
+            ints.append(answerswords2int[word])
     answers_into_int.append(ints)
 
 # Sorting questions and answers by the length of questions
@@ -134,6 +138,9 @@ for length in range(1, 25 + 1):  # 25 is the maximum length of questions
         if len(i[1]) == length:  # i[1] is the question
             sorted_clean_questions.append(questions_into_int[i[0]])  # i[0] is the index of the question
             sorted_clean_answers.append(answers_into_int[i[0]])  # i[0] is the index of the question
+
+
+########## PART 2 - BUILDING THE SEQ2SEQ MODEL ##########
 
 
 # Creating placeholders for the inputs and the targets
@@ -165,7 +172,12 @@ def preprocess_targets(targets, word2int, batch_size):
 # num_layers: number of layers
 # keep_prob: dropout rate
 # sequence_length: list of the length of each question in the batch
-def encoder_rnn(rnn_inputs, rnn_size, num_layers, keep_prob, sequence_length):
+def encoder_rnn(
+        rnn_inputs,
+        rnn_size,
+        num_layers,
+        keep_prob,
+        sequence_length):
     lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
     lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
     encoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
@@ -254,6 +266,7 @@ def decode_test_set(encoder_state, decoder_cell, decoder_embeddings_matrix, sos_
 
     return test_predictions
 
+
 # Creating the Decoder RNN
 def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state, num_words, sequence_length, rnn_size, num_layers, word2int, keep_prob, batch_size):
     with tf.variable_scope('decoding') as decoding_scope:
@@ -270,7 +283,7 @@ def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state
             weights_initializer=weights,  # weights initializer
             biases_initializer=biases)  # biases initializer
 
-        training_predictions =decode_training_set(
+        training_predictions = decode_training_set(
             encoder_state,  # final state of the encoder
             decoder_cell,  # decoder RNN cell
             decoder_embedded_input,  # embedded input of the decoder
@@ -285,7 +298,73 @@ def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state
             encoder_state,  # final state of the encoder
             decoder_cell,  # decoder RNN cell
             decoder_embeddings_matrix,  # embeddings matrix of the decoder
-        )
+            word2int['<SOS>'],  # start of sentence id
+            word2int['<EOS>'],  # end of sentence id
+            sequence_length - 1,  # maximum length of the sentence
+            num_words,  # number of words in the vocabulary
+            decoding_scope,  # scope of the decoding layer
+            output_function,  # function to return the output of the decoding layer
+            keep_prob,  # dropout rate
+            batch_size)  # batch size
+
+    return training_predictions, test_predictions
+
+
+# Building the seq2seq model
+def seq2seq_model(
+        inputs,  # questions of the Colnell movie data set
+        targets,  # the real answer
+        keep_prob,  # dropout rate
+        batch_size,  # batch size
+        sequence_length,  # list of the length of each question in the batch
+        answers_num_words,  # number of words in the answers vocabulary
+        questions_num_words,  # number of words in the questions vocabulary
+        encoder_embedding_size,  # size of the encoder embedding layer
+        decoder_embedding_size,  # size of the decoder embedding layer
+        rnn_size,  # number of units in the RNN
+        num_layers,  # number of layers in the RNN
+        questionswords2int):  # word2int dictionary of the questions vocabulary
+
+    encoder_embedded_input = tf.contrib.layers.embed_sequence(
+        inputs,  # questions of the Colnell movie data set
+        answers_num_words + 1,  # number of words in the answers vocabulary
+        encoder_embedding_size,  # number of dimensions for each word in the encoder embedding layer
+        initializer=tf.random_uniform_initializer(0, 1))  # initialize the encoder embedding layer
+
+    encoder_state = encoder_rnn(
+        encoder_embedded_input,  # inputs that formatted for the encoder
+        rnn_size,  # number of units in the encoder RNN
+        num_layers,  # number of layers in the encoder RNN
+        keep_prob,  # dropout rate
+        sequence_length)  # list of the length of each question in the batch
+
+    preprocessed_targets = preprocess_targets(
+        targets,  # the real answer
+        questionswords2int,  # word2int dictionary of the questions vocabulary
+        batch_size)  # batch size
+
+    decoder_embeddings_matrix = tf.Variable(
+        tf.random_uniform([questions_num_words + 1, decoder_embedding_size], 0, 1))  # initialize the decoder embedding layer
+    decoder_embedded_input = tf.nn.embedding_lookup(
+        decoder_embeddings_matrix,  # embeddings matrix of the decoder
+        preprocessed_targets)  # targets that formatted for the decoder
+
+    training_predictions, test_predictions = decoder_rnn(
+        decoder_embedded_input,  # embedded input of the decoder
+        decoder_embeddings_matrix,  # embeddings matrix of the decoder
+        encoder_state,  # final state of the encoder
+        questions_num_words,  # number of words in the questions vocabulary
+        sequence_length,  # list of the length of each question in the batch
+        rnn_size,  # number of units in the encoder RNN
+        num_layers,  # number of layers in the encoder RNN
+        questionswords2int,  # word2int dictionary of the questions vocabulary
+        keep_prob,  # dropout rate
+        batch_size)  # batch size
+
+    return training_predictions, test_predictions
+
+
+
 
 
 
