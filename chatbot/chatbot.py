@@ -1,5 +1,6 @@
 import numpy as np
-import tensorflow as tf
+import tensorflow.c.v1 as tf
+tf.disable_v2_behavior()
 import re
 import time
 
@@ -87,6 +88,7 @@ for word, count in word2count.items():
         questionswords2int[word] = word_number
         word_number += 1
 
+threshold_answers = 20
 answerswords2int = {}
 word_number = 0
 for word, count in word2count.items():
@@ -145,11 +147,16 @@ for length in range(1, 25 + 1):  # 25 is the maximum length of questions
 
 # Creating placeholders for the inputs and the targets
 def model_inputs():
-    inputs = tf.placeholder(tf.int32, [None, None], name='input')  # None: batch size, None: sequence length
-    targets = tf.placeholder(tf.int32, [None, None], name='target')  # None: batch size, None: sequence length
-    lr = tf.placeholder(tf.float32, name='learning_rate')  # learning rate
-    keep_prob = tf.placeholder(tf.float32, name='keep_prob')  # dropout rate
-    return inputs, targets, lr, keep_prob
+    inputs = tf.keras.Input(shape=(None,), dtype=tf.int32, name='input')  # None: batch size, None: sequence length
+    targets = tf.keras.Input(shape=(None,), dtype=tf.int32, name='target')  # None: batch size, None: sequence length
+    # learning rate and keep_prob will be used directly in Tensorflow 2.0
+    return inputs, targets
+    # inputs = tf.placeholder(tf.int32, [None, None], name='input')  # None: batch size, None: sequence length
+    # targets = tf.placeholder(tf.int32, [None, None], name='target')  # None: batch size, None: sequence length
+    # lr = tf.placeholder(tf.float32, name='learning_rate')  # learning rate
+    # keep_prob = tf.placeholder(tf.float32, name='keep_prob')  # dropout rate
+    # return inputs, targets, lr, keep_prob
+
 
 
 # Preprocessing the targets
@@ -364,10 +371,30 @@ def seq2seq_model(
     return training_predictions, test_predictions
 
 
+########## PART 3 - TRAINING THE SEQ2SEQ MODEL ##########
 
+# Setting the Hyperparameters
+epochs = 100  # number of epochs
+batch_size = 64  # batch size
+rnn_size = 512  # number of units in the RNN
+num_layers = 3  # number of encoder and decoder layers in the RNN
+encoding_embedding_size = 512  # size of the encoder embedding layer
+decoding_embedding_size = 512  # size of the decoder embedding layer
+learning_rate = 0.01  # learning rate
+learning_rate_decay = 0.9  # learning rate decay 90%
+min_learning_rate = 0.0001  # minimum learning rate
+keep_probability = 0.5  # dropout rate
 
+# Defining a session
+# tf.reset_default_graph()  # reset the graph
+# session = tf.InteractiveSession()  # create a session
 
+context = tf.compat.v1.get_default_graph()
 
+session = tf.compat.v1.Session()
+
+# Loading the model inputs
+inputs, targets, lr, keep_prob = model_inputs()  # get the inputs
 
 
 
