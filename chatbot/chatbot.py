@@ -1,6 +1,7 @@
 import numpy as np
-import tensorflow.c.v1 as tf
+import tensorflow._api.v2.compat.v1 as tf
 tf.disable_v2_behavior()
+import tensorflow_addons as tfa
 import re
 import time
 
@@ -147,15 +148,11 @@ for length in range(1, 25 + 1):  # 25 is the maximum length of questions
 
 # Creating placeholders for the inputs and the targets
 def model_inputs():
-    inputs = tf.keras.Input(shape=(None,), dtype=tf.int32, name='input')  # None: batch size, None: sequence length
-    targets = tf.keras.Input(shape=(None,), dtype=tf.int32, name='target')  # None: batch size, None: sequence length
-    # learning rate and keep_prob will be used directly in Tensorflow 2.0
-    return inputs, targets
-    # inputs = tf.placeholder(tf.int32, [None, None], name='input')  # None: batch size, None: sequence length
-    # targets = tf.placeholder(tf.int32, [None, None], name='target')  # None: batch size, None: sequence length
-    # lr = tf.placeholder(tf.float32, name='learning_rate')  # learning rate
-    # keep_prob = tf.placeholder(tf.float32, name='keep_prob')  # dropout rate
-    # return inputs, targets, lr, keep_prob
+    inputs = tf.placeholder(tf.int32, [None, None], name='input')  # None: batch size, None: sequence length
+    targets = tf.placeholder(tf.int32, [None, None], name='target')  # None: batch size, None: sequence length
+    lr = tf.placeholder(tf.float32, name='learning_rate')  # learning rate
+    keep_prob = tf.placeholder(tf.float32, name='keep_prob')  # dropout rate
+    return inputs, targets, lr, keep_prob
 
 
 
@@ -179,30 +176,51 @@ def preprocess_targets(targets, word2int, batch_size):
 # num_layers: number of layers
 # keep_prob: dropout rate
 # sequence_length: list of the length of each question in the batch
-def encoder_rnn(
-        rnn_inputs,
-        rnn_size,
-        num_layers,
-        keep_prob,
-        sequence_length):
-    lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
-    lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
-    encoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
-    # cell_fw: forward cell, cell_bw: backward cell
-    # sequence_length: list of the length of each question in the batch
-    # inputs: inputs of the RNN layer
-    # dtype: type of the rnn inputs
-    # _encoder_output: output of the encoder, don't need it
-    # encoder_state: final state of the encoder
-    _encoder_output, encoder_state = tf.nn.bidirectional_dynamic_rnn(
-        cell_fw=encoder_cell,
-        cell_bw=encoder_cell,
-        sequence_length=sequence_length,
-        inputs=rnn_inputs,
-        dtype=tf.float32)  # create a bidirectional RNN
+# def encoder_rnn(
+#         rnn_inputs,
+#         rnn_size,
+#         num_layers,
+#         keep_prob,
+#         sequence_length):
+#     lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
+#     lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
+#     encoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
+#     # cell_fw: forward cell, cell_bw: backward cell
+#     # sequence_length: list of the length of each question in the batch
+#     # inputs: inputs of the RNN layer
+#     # dtype: type of the rnn inputs
+#     # _encoder_output: output of the encoder, don't need it
+#     # encoder_state: final state of the encoder
+#     _encoder_output, encoder_state = tf.nn.bidirectional_dynamic_rnn(
+#         cell_fw=encoder_cell,
+#         cell_bw=encoder_cell,
+#         sequence_length=sequence_length,
+#         inputs=rnn_inputs,
+#         dtype=tf.float32)  # create a bidirectional RNN
+#
+#     return encoder_state
+
+def encoder_rnn(rnn_inputs, rnn_size, num_layers, keep_prob, sequence_length):
+    # Create a LSTM cell
+    lstm = tf.keras.layers.LSTM(rnn_size, return_sequences=True, return_state=True, dropout=1-keep_prob)
+
+    # Stack multiple LSTM layers
+    stacked_lstm = tf.keras.Sequential([lstm]*num_layers)
+
+    # Use the Bidirectional layer of Keras to make it bidirectional
+    encoder_cell = tf.keras.layers.Bidirectional(stacked_lstm, merge_mode='concat')
+
+    # In the Bidirectional layer in Keras, you should put the sequence_length in the mask
+    mask = tf.sequence_mask(sequence_length)
+
+    # Now rnn_inputs are the inputs of the RNN layer
+    _encoder_output = encoder_cell(rnn_inputs, mask=mask)
+
+    # Since the Bidirectional layer in Keras returns the final states of the forward and the backward
+    # LSTM separately, we should concatenate them to get the final encoder state
+    encoder_state = tf.concat(_encoder_output[1:], axis=-1)
 
     return encoder_state
-
 
 # Decoding the training set
 # encoder_state: final state of the encoder
@@ -218,12 +236,12 @@ def decode_training_set(encoder_state, decoder_cell, decoder_embedded_input, seq
     # attention_values: values used to construct the context vector
     # attention_score_function: used to compute the similarity between the keys and the target state
     # attention_construct_function: used to build the attention state
-    attention_keys, attention_values, attention_score_function, attention_construct_function = tf.contrib.seq2seq.prepare_attention(
+    attention_keys, attention_values, attention_score_function, attention_construct_function = tf.keras.layers.AdditiveAttention.prepare_attention(
         attention_states=attention_states,
         attention_option='bahdanau',
         num_units=decoder_cell.output_size)  # create the attention mechanism
 
-    training_decoder_function = tf.contrib.seq2seq.attention_decoder_fn_train(
+    training_decoder_function = tf.keras.layers.AdditiveAttention.attention_decoder_fn_train(
         encoder_state[0],  # encoder_state[0]: forward state of the encoder
         attention_keys,  # keys to be compared with the target state
         attention_values,  # values used to construct the context vector
@@ -234,7 +252,7 @@ def decode_training_set(encoder_state, decoder_cell, decoder_embedded_input, seq
     # decoder_output: output of the decoder
     # _decoder_final_state: final state of the decoder, don't need it
     # _decoder_final_context_state: final state of the decoder context, don't need it
-    decoder_output, _decoder_final_state, _decoder_final_context_state = tf.contrib.seq2seq.dynamic_rnn_decoder(
+    decoder_output, _decoder_final_state, _decoder_final_context_state = tf.keras.layers.AdditiveAttention.dynamic_rnn_decoder(
         decoder_cell,  # decoder RNN cell
         training_decoder_function,  # attention decoder function
         decoder_embedded_input,  # embedded input of the decoder
@@ -247,12 +265,12 @@ def decode_training_set(encoder_state, decoder_cell, decoder_embedded_input, seq
 
 def decode_test_set(encoder_state, decoder_cell, decoder_embeddings_matrix, sos_id, eos_id, maximum_length, num_words, decoding_scope, output_function, keep_prob, batch_size):
     attention_states = tf.zeros([batch_size, 1, decoder_cell.output_size])  # initialize the attention states
-    attention_keys, attention_values, attention_score_function, attention_construct_function = tf.contrib.seq2seq.prepare_attention(
+    attention_keys, attention_values, attention_score_function, attention_construct_function = tf.keras.layers.AdditiveAttention.prepare_attention(
         attention_states=attention_states,
         attention_option='bahdanau',
         num_units=decoder_cell.output_size)  # create the attention mechanism
 
-    test_decoder_function = tf.contrib.seq2seq.attention_decoder_fn_inference(
+    test_decoder_function = tf.keras.layers.AdditiveAttention.attention_decoder_fn_inference(
         output_function,  # output function to use
         encoder_state[0],  # encoder_state[0]: forward state of the encoder
         attention_keys,  # keys to be compared with the target state
@@ -266,7 +284,7 @@ def decode_test_set(encoder_state, decoder_cell, decoder_embeddings_matrix, sos_
         num_words,  # number of words in the vocabulary
         name='attn_dec_inf')  # name of the attention decoder function
 
-    test_predictions, _decoder_final_state, _decoder_final_context_state = tf.contrib.seq2seq.dynamic_rnn_decoder(
+    test_predictions, _decoder_final_state, _decoder_final_context_state = tf.keras.layers.AdditiveAttention.dynamic_rnn_decoder(
         decoder_cell,  # decoder RNN cell
         test_decoder_function,  # attention decoder function
         scope=decoding_scope)  # scope of the decoding layer
@@ -275,44 +293,90 @@ def decode_test_set(encoder_state, decoder_cell, decoder_embeddings_matrix, sos_
 
 
 # Creating the Decoder RNN
-def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state, num_words, sequence_length, rnn_size, num_layers, word2int, keep_prob, batch_size):
-    with tf.variable_scope('decoding') as decoding_scope:
-        lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
-        lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
-        decoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
-        weights = tf.truncated_normal_initializer(stddev=0.1)  # initialize the weights, stddev: standard deviation
-        biases = tf.zeros_initializer()
-        output_function = lambda x: tf.contrib.layers.fully_connected(
-            x,  # input tensor
-            num_words,  # number of outputs
-            None,  # activation function
-            scope=decoding_scope,  # scope of the decoding layer
-            weights_initializer=weights,  # weights initializer
-            biases_initializer=biases)  # biases initializer
+# def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state, num_words, sequence_length, rnn_size, num_layers, word2int, keep_prob, batch_size):
+#     with tf.variable_scope('decoding') as decoding_scope:
+#         lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)  # create a LSTM cell
+#         lstm_dropout = tf.contrib.rnn.DropoutWrapper(lstm, input_keep_prob=keep_prob)  # add dropout to the LSTM cell
+#         decoder_cell = tf.contrib.rnn.MultiRNNCell([lstm_dropout] * num_layers)  # create multiple LSTM cells
+#         weights = tf.truncated_normal_initializer(stddev=0.1)  # initialize the weights, stddev: standard deviation
+#         biases = tf.zeros_initializer()
+#         output_function = lambda x: tf.keras.layers.Dense(
+#             x,  # input tensor
+#             num_words,  # number of outputs
+#             None,  # activation function
+#             scope=decoding_scope,  # scope of the decoding layer
+#             weights_initializer=weights,  # weights initializer
+#             biases_initializer=biases)  # biases initializer
+#
+#         training_predictions = decode_training_set(
+#             encoder_state,  # final state of the encoder
+#             decoder_cell,  # decoder RNN cell
+#             decoder_embedded_input,  # embedded input of the decoder
+#             sequence_length,  # list of the length of each question in the batch
+#             decoding_scope,  # scope of the decoding layer
+#             output_function,  # function to return the output of the decoding layer
+#             keep_prob,  # dropout rate
+#             batch_size)  # batch size
+#
+#         decoding_scope.reuse_variables()  # reuse the variables
+#         test_predictions = decode_test_set(
+#             encoder_state,  # final state of the encoder
+#             decoder_cell,  # decoder RNN cell
+#             decoder_embeddings_matrix,  # embeddings matrix of the decoder
+#             word2int['<SOS>'],  # start of sentence id
+#             word2int['<EOS>'],  # end of sentence id
+#             sequence_length - 1,  # maximum length of the sentence
+#             num_words,  # number of words in the vocabulary
+#             decoding_scope,  # scope of the decoding layer
+#             output_function,  # function to return the output of the decoding layer
+#             keep_prob,  # dropout rate
+#             batch_size)  # batch size
+#
+#     return training_predictions, test_predictions
 
-        training_predictions = decode_training_set(
-            encoder_state,  # final state of the encoder
-            decoder_cell,  # decoder RNN cell
-            decoder_embedded_input,  # embedded input of the decoder
-            sequence_length,  # list of the length of each question in the batch
-            decoding_scope,  # scope of the decoding layer
-            output_function,  # function to return the output of the decoding layer
-            keep_prob,  # dropout rate
-            batch_size)  # batch size
+def decoder_rnn(decoder_embedded_input, decoder_embeddings_matrix, encoder_state, num_words, sequence_length, rnn_size,
+                num_layers, word2int, keep_prob, batch_size):
+    # Create a LSTM cell
+    lstm_cells = [tf.keras.layers.LSTMCell(rnn_size, dropout=1 - keep_prob) for _ in range(num_layers)]
+    decoder_cell = tf.keras.layers.StackedRNNCells(lstm_cells)
 
-        decoding_scope.reuse_variables()  # reuse the variables
-        test_predictions = decode_test_set(
-            encoder_state,  # final state of the encoder
-            decoder_cell,  # decoder RNN cell
-            decoder_embeddings_matrix,  # embeddings matrix of the decoder
-            word2int['<SOS>'],  # start of sentence id
-            word2int['<EOS>'],  # end of sentence id
-            sequence_length - 1,  # maximum length of the sentence
-            num_words,  # number of words in the vocabulary
-            decoding_scope,  # scope of the decoding layer
-            output_function,  # function to return the output of the decoding layer
-            keep_prob,  # dropout rate
-            batch_size)  # batch size
+    # Initialize the weights and biases
+    weights_initializer = tf.keras.initializers.TruncatedNormal(stddev=0.1)
+    biases_initializer = tf.keras.initializers.Zeros()
+
+    # Define output layer
+    output_layer = tf.keras.layers.Dense(
+        num_words,
+        kernel_initializer=weights_initializer,
+        bias_initializer=biases_initializer)
+
+    # This function now returns the final output layer
+    output_function = lambda x: output_layer(x)
+
+    # Here, you might need to modify your decode_training_set and decode_test_set functions to work with TF 2.x
+    # I'm assuming these functions are compatible with TF 2.x after modifications
+    training_predictions = decode_training_set(
+        encoder_state,
+        decoder_cell,
+        decoder_embedded_input,
+        sequence_length,
+        output_function,
+        keep_prob,
+        batch_size)
+
+    # decoding_scope.reuse_variables() is not needed in TF 2.x because of eager execution
+
+    test_predictions = decode_test_set(
+        encoder_state,
+        decoder_cell,
+        decoder_embeddings_matrix,
+        word2int['<SOS>'],
+        word2int['<EOS>'],
+        sequence_length - 1,
+        num_words,
+        output_function,
+        keep_prob,
+        batch_size)
 
     return training_predictions, test_predictions
 
@@ -332,11 +396,20 @@ def seq2seq_model(
         num_layers,  # number of layers in the RNN
         questionswords2int):  # word2int dictionary of the questions vocabulary
 
-    encoder_embedded_input = tf.contrib.layers.embed_sequence(
-        inputs,  # questions of the Colnell movie data set
-        answers_num_words + 1,  # number of words in the answers vocabulary
-        encoder_embedding_size,  # number of dimensions for each word in the encoder embedding layer
-        initializer=tf.random_uniform_initializer(0, 1))  # initialize the encoder embedding layer
+    # Instantiate the layer
+    embedding_layer = tf.keras.layers.Embedding(input_dim=answers_num_words + 1,
+                                                output_dim=encoder_embedding_size,
+                                                embeddings_initializer=tf.random_uniform_initializer(0, 1))
+
+    # If you have sequence data (a batch of sequences, where each sequence is a list of integers)
+    # Apply the layer
+    encoder_embedded_input = embedding_layer(inputs)
+
+    # encoder_embedded_input = tf.contrib.layers.embed_sequence(
+    #     inputs,  # questions of the Colnell movie data set
+    #     answers_num_words + 1,  # number of words in the answers vocabulary
+    #     encoder_embedding_size,  # number of dimensions for each word in the encoder embedding layer
+    #     initializer=tf.random_uniform_initializer(0, 1))  # initialize the encoder embedding layer
 
     encoder_state = encoder_rnn(
         encoder_embedded_input,  # inputs that formatted for the encoder
@@ -396,6 +469,7 @@ session = tf.compat.v1.Session()
 # Loading the model inputs
 inputs, targets, lr, keep_prob = model_inputs()  # get the inputs
 
+print('done')
 
 
 
